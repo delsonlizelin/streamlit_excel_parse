@@ -71,7 +71,10 @@ def get_chinese_font_prop() -> fm.FontProperties | None:
         "Arial Unicode",
     ]
 
-    for font_path in fm.findSystemFonts(fontpaths=None, fontext="ttf") + fm.findSystemFonts(fontpaths=None, fontext="otf"):
+    system_fonts = fm.findSystemFonts(fontpaths=None, fontext="ttf") + fm.findSystemFonts(
+        fontpaths=None, fontext="otf"
+    )
+    for font_path in system_fonts:
         lower_path = font_path.lower()
         if any(keyword.lower() in lower_path for keyword in preferred_keywords):
             return fm.FontProperties(fname=font_path)
@@ -103,13 +106,25 @@ def format_number(value) -> str:
     """用于图片表格展示的数字格式。"""
     if pd.isna(value):
         return ""
-    if isinstance(value, (int,)):
+    if isinstance(value, int):
         return f"{value:,}"
     if isinstance(value, float):
         if value.is_integer():
             return f"{int(value):,}"
         return f"{value:,.2f}".rstrip("0").rstrip(".")
     return str(value)
+
+
+def dataframe_elementwise_map(df: pd.DataFrame, func) -> pd.DataFrame:
+    """
+    对 DataFrame 做逐元素映射，兼容新旧 pandas 版本。
+
+    pandas >= 2.1 推荐使用 DataFrame.map()
+    旧版本仍可回退到 DataFrame.applymap()
+    """
+    if hasattr(df, "map"):
+        return df.map(func)
+    return df.applymap(func)
 
 
 def process_excel(uploaded_file, sheet_name: str = DEFAULT_SHEET_NAME) -> tuple[bytes, pd.DataFrame]:
@@ -137,18 +152,14 @@ def process_excel(uploaded_file, sheet_name: str = DEFAULT_SHEET_NAME) -> tuple[
 
     expected_col_count = 10
     if df.shape[1] != expected_col_count:
-        raise ValueError(
-            f"读取到的列数为 {df.shape[1]}，但预期应为 10 列（G:P）。"
-        )
+        raise ValueError(f"读取到的列数为 {df.shape[1]}，但预期应为 10 列（G:P）。")
 
     headers = list(df.columns)
     name_col = headers[0]
     metric_cols = headers[1:]
 
     if len(metric_cols) != METRIC_COUNT:
-        raise ValueError(
-            f"数值指标列数量为 {len(metric_cols)}，但预期应为 {METRIC_COUNT}。"
-        )
+        raise ValueError(f"数值指标列数量为 {len(metric_cols)}，但预期应为 {METRIC_COUNT}。")
 
     df[name_col] = df[name_col].fillna("").astype(str).str.strip()
 
@@ -230,7 +241,7 @@ def render_table_plot(result_df: pd.DataFrame) -> bytes:
     mpl.rcParams["axes.unicode_minus"] = False
 
     display_df = result_df.copy()
-    formatted_display_df = display_df.applymap(format_number)
+    formatted_display_df = dataframe_elementwise_map(display_df, format_number)
     rows, cols = formatted_display_df.shape
 
     fig_width = max(12, cols * 1.8)
