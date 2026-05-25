@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import column_index_from_string
 
 st.set_page_config(page_title="Excel 汇总工具", page_icon="📊", layout="centered")
 
@@ -27,8 +28,16 @@ FIXED_LIST = [
 ]
 
 DEFAULT_SHEET_NAME = "Sheet1"
-SOURCE_USECOLS = "G:P"  # G = name column, H:P = 9 metric columns
-METRIC_COUNT = 9
+# Raw-input layout: column G is the name; every column after it through the last
+# metric column is a numeric metric. The two counts are derived from the range,
+# so accommodating a future column means changing only LAST_METRIC_COL.
+NAME_COL = "G"
+LAST_METRIC_COL = "Q"  # was P; a 10th metric column was appended at Q
+SOURCE_USECOLS = f"{NAME_COL}:{LAST_METRIC_COL}"
+SOURCE_COL_COUNT = (
+    column_index_from_string(LAST_METRIC_COL) - column_index_from_string(NAME_COL) + 1
+)
+METRIC_COUNT = SOURCE_COL_COUNT - 1  # all columns after the name column
 DEFAULT_FILE_STEM = f"业绩表-{datetime.now().strftime('%Y%m%d')}"
 DEFAULT_EXCEL_FILENAME = f"{DEFAULT_FILE_STEM}.xlsx"
 
@@ -79,9 +88,9 @@ def setup_chinese_font() -> fm.FontProperties | None:
             "pingfang",
             "arial unicode",
         ]
-        system_fonts = fm.findSystemFonts(fontpaths=None, fontext="ttf") + fm.findSystemFonts(
-            fontpaths=None, fontext="otf"
-        )
+        system_fonts = fm.findSystemFonts(
+            fontpaths=None, fontext="ttf"
+        ) + fm.findSystemFonts(fontpaths=None, fontext="otf")
         for font_path in system_fonts:
             lower_path = font_path.lower()
             if any(keyword in lower_path for keyword in preferred_keywords):
@@ -164,12 +173,14 @@ def dataframe_elementwise_map(df: pd.DataFrame, func) -> pd.DataFrame:
     return df.applymap(func)
 
 
-def process_excel(uploaded_file, sheet_name: str = DEFAULT_SHEET_NAME) -> tuple[bytes, pd.DataFrame]:
+def process_excel(
+    uploaded_file, sheet_name: str = DEFAULT_SHEET_NAME
+) -> tuple[bytes, pd.DataFrame]:
     """Aggregate the uploaded workbook against the fixed name list.
 
-    Reads ``G:P`` from the chosen sheet, sums the 9 metric columns per name,
-    aligns the result to ``FIXED_LIST`` order (filling absent names with 0),
-    and writes a styled output workbook.
+    Reads ``SOURCE_USECOLS`` from the chosen sheet, sums the ``METRIC_COUNT``
+    metric columns per name, aligns the result to ``FIXED_LIST`` order (filling
+    absent names with 0), and writes a styled output workbook.
 
     Args:
         uploaded_file: File-like object yielded by ``st.file_uploader``.
@@ -192,19 +203,22 @@ def process_excel(uploaded_file, sheet_name: str = DEFAULT_SHEET_NAME) -> tuple[
         )
     except ValueError as exc:
         raise ValueError(
-            f"读取失败。请确认文件中存在工作表“{sheet_name}”，且 G:P 区域可读取。原始错误：{exc}"
+            f"读取失败。请确认文件中存在工作表“{sheet_name}”，且 {SOURCE_USECOLS} 区域可读取。原始错误：{exc}"
         ) from exc
 
-    expected_col_count = 10
-    if df.shape[1] != expected_col_count:
-        raise ValueError(f"读取到的列数为 {df.shape[1]}，但预期应为 10 列（G:P）。")
+    if df.shape[1] != SOURCE_COL_COUNT:
+        raise ValueError(
+            f"读取到的列数为 {df.shape[1]}，但预期应为 {SOURCE_COL_COUNT} 列（{SOURCE_USECOLS}）。"
+        )
 
     headers = list(df.columns)
     name_col = headers[0]
     metric_cols = headers[1:]
 
     if len(metric_cols) != METRIC_COUNT:
-        raise ValueError(f"数值指标列数量为 {len(metric_cols)}，但预期应为 {METRIC_COUNT}。")
+        raise ValueError(
+            f"数值指标列数量为 {len(metric_cols)}，但预期应为 {METRIC_COUNT}。"
+        )
 
     df[name_col] = df[name_col].fillna("").astype(str).str.strip()
 
@@ -256,7 +270,9 @@ def process_excel(uploaded_file, sheet_name: str = DEFAULT_SHEET_NAME) -> tuple[
             cell.alignment = center_alignment
             cell.border = thin_border
 
-        for row in worksheet.iter_rows(min_row=2, max_row=max_row, min_col=1, max_col=max_col):
+        for row in worksheet.iter_rows(
+            min_row=2, max_row=max_row, min_col=1, max_col=max_col
+        ):
             for cell in row:
                 cell.alignment = center_alignment
                 cell.border = thin_border
@@ -387,7 +403,7 @@ for key in ("excel_downloaded", "image_downloaded", "celebrated"):
 
 st.title("Excel 汇总工具")
 st.caption(
-    "上传 Excel 文件后，自动读取 Sheet1 的 G:P 区域，按固定名单汇总，生成新的结果 Excel，并导出高清表格图片。"
+    f"上传 Excel 文件后，自动读取 Sheet1 的 {SOURCE_USECOLS} 区域，按固定名单汇总，生成新的结果 Excel，并导出高清表格图片。"
 )
 
 with st.expander("固定名单", expanded=False):
@@ -397,7 +413,7 @@ uploaded_file = st.file_uploader(
     "上传 Excel 文件",
     type=["xlsx", "xlsm"],
     accept_multiple_files=False,
-    help="要求工作表名为 Sheet1，G列为姓名，H:P 为 9 个数值指标。",
+    help=f"要求工作表名为 Sheet1，{NAME_COL} 列为姓名，其后 {METRIC_COUNT} 个数值指标。",
 )
 
 sheet_name = st.text_input("工作表名称", value=DEFAULT_SHEET_NAME)
