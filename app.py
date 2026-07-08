@@ -25,6 +25,7 @@ FIXED_LIST = [
     "吴筱烨",
     "范颖",
     "查泽民",
+    "钟欣然",
 ]
 
 DEFAULT_SHEET_NAME = "Sheet1"
@@ -42,7 +43,6 @@ DEFAULT_FILE_STEM = f"业绩表-{datetime.now().strftime('%Y%m%d')}"
 DEFAULT_EXCEL_FILENAME = f"{DEFAULT_FILE_STEM}.xlsx"
 
 APP_DIR = Path(__file__).parent
-HOME_IMAGE_PATH = APP_DIR / "home.png"
 
 
 @st.cache_resource
@@ -355,52 +355,6 @@ def render_table_plot(result_df: pd.DataFrame) -> bytes:
     return output.getvalue()
 
 
-def reset_download_flags() -> None:
-    """Clear download tracking when the user starts a fresh processing run."""
-    st.session_state.excel_downloaded = False
-    st.session_state.image_downloaded = False
-    st.session_state.celebrated = False
-
-
-def show_celebration() -> None:
-    """Display the cute home.png with a cheering message after both downloads.
-
-    The image is shown only once per processing run (``celebrated`` flag) so
-    the balloons don't re-fire on every Streamlit rerun.
-    """
-    if not st.session_state.get("celebrated", False):
-        st.balloons()
-        st.session_state.celebrated = True
-
-    st.markdown("---")
-    if HOME_IMAGE_PATH.exists():
-        col_left, col_center, col_right = st.columns([1, 2, 1])
-        with col_center:
-            st.image(str(HOME_IMAGE_PATH), use_container_width=True)
-    else:
-        st.info("（把 home.png 放到应用目录就能看到今天的小彩蛋啦～）")
-
-    st.markdown(
-        """
-        <div style="text-align:center; padding:18px; border-radius:14px;
-                    background: linear-gradient(135deg,#fde2e4,#fad2e1,#cddafd);
-                    color:#5a3e6b; font-size:18px; line-height:1.7;">
-        🌸 <b>今天也辛苦啦！</b> 🌸<br/>
-        两份文件都安全到家了 ✨<br/>
-        合上电脑，给自己一个大大的拥抱 🤗<br/>
-        热茶、晚饭、还有想见的人，都在等你 🍵🍰💖<br/>
-        <i>明天又是元气满满的一天～</i>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-# Initialize session-state flags up front so reads never KeyError.
-for key in ("excel_downloaded", "image_downloaded", "celebrated"):
-    st.session_state.setdefault(key, False)
-
-
 st.title("Excel 汇总工具")
 st.caption(
     f"上传 Excel 文件后，自动读取 Sheet1 的 {SOURCE_USECOLS} 区域，按固定名单汇总，生成新的结果 Excel，并导出高清表格图片。"
@@ -427,7 +381,6 @@ if uploaded_file is not None:
     st.info(f"已上传文件：{uploaded_file.name}")
 
     if st.button("开始处理", type="primary"):
-        reset_download_flags()
         try:
             excel_bytes, result_df = process_excel(uploaded_file, sheet_name=sheet_name)
             excel_filename = sanitize_filename(custom_excel_filename, ".xlsx")
@@ -456,33 +409,28 @@ if uploaded_file is not None:
 
         col1, col2 = st.columns(2)
         with col1:
-            if st.download_button(
+            st.download_button(
                 label="下载结果 Excel",
                 data=st.session_state.excel_bytes,
                 file_name=st.session_state.excel_filename,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
                 key="dl_excel",
-            ):
-                st.session_state.excel_downloaded = True
+            )
         with col2:
-            if st.download_button(
+            st.download_button(
                 label="下载高清图片",
                 data=st.session_state.plot_bytes,
                 file_name=st.session_state.plot_filename,
                 mime="image/png",
                 use_container_width=True,
                 key="dl_image",
-            ):
-                st.session_state.image_downloaded = True
+            )
 
         if CHINESE_FONT_PROP is None:
             st.warning(
                 "当前运行环境中未检测到明确的中文字体。若图片中的中文显示异常，请把 NotoSansCJKsc-Regular.otf、"
                 "SourceHanSansCN-Regular.otf 或 SimHei.ttf 放到应用目录或 fonts 目录中后重新部署。"
             )
-
-        if st.session_state.excel_downloaded and st.session_state.image_downloaded:
-            show_celebration()
 else:
     st.write("请先上传一个 Excel 文件。")
